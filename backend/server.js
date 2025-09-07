@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 
 // Enable CORS - Add this middleware
 app.use(cors({
-  origin: "http://localhost:5173", // Your frontend URL
+  origin: ["http://localhost:5173", "https://contractly-kappa.vercel.app/"], // Your frontend URL
   credentials: true
 }));
 

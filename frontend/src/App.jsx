@@ -1,6 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, XIcon } from 'lucide-react';
 
+
+const API_BASE =
+  window.location.hostname === "localhost"
+    ? "http://localhost:5000"
+    : "https://contractly-nhu5.onrender.com";
+
 const Index = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -67,7 +73,7 @@ const Index = () => {
         const formData = new FormData();
         formData.append('file', selectedFile);
 
-        const response = await fetch('http://localhost:5000/analyze', {
+        const response = await fetch(`${API_BASE}/analyze`, {
           method: 'POST',
           body: formData,
         });
@@ -334,7 +340,7 @@ const Index = () => {
 
         {showResults && analysisResults && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-4xl w-full max-h-[80vh] overflow-y-auto relative">
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-full md:max-w-4xl w-full max-h-[80vh] overflow-y-auto relative">
               {/* Close button */}
               <button 
                 className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 z-10 bg-white rounded-full p-1 shadow-sm"
