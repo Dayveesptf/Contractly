@@ -98,7 +98,7 @@ async function startServer() {
 
       // Build prompt
       const prompt = `
-        You are a legal assistant AI. Analyze this contract and summarize clearly:
+        You are a legal assistant AI. Analyze this contract and summarize clearly, tell the user to upload an actual contract, if something unrelated was uploaded:
         - Key obligations
         - Renewal dates and deadlines
         - Risks and penalties
