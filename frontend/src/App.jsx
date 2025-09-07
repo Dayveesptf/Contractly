@@ -84,11 +84,20 @@ const Index = () => {
         }
 
         const data = await response.json();
-        setAnalysisResults(data.analysis);
-        setShowResults(true);
+        // 🟡 If backend says it's not a contract, show warning only
+        if (data.analysis && data.analysis.startsWith("⚠️")) {
+          setError(data.analysis); // yellow warning
+          setAnalysisResults(null);
+          setShowResults(false);
+        } else {
+          setAnalysisResults(data.analysis);
+          setShowResults(true);
+        }
       } catch (error) {
-        console.error('Analysis error:', error);
-        setError(error.message || 'Failed to analyze contract. Please try again.');
+        console.error("Analysis error:", error);
+        setError(
+          error.message || "Failed to analyze contract. Please try again."
+        );
       } finally {
         setIsAnalyzing(false);
       }
@@ -190,14 +199,18 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Error Message */}
+        {/* Error or Warning */}
         {error && (
           <div className="w-11/12 md:w-3/6 mx-auto mb-6">
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl">
-              <div className="flex items-center">
-                <AlertCircle className="w-5 h-5 mr-2" />
-                <span>{error}</span>
-              </div>
+            <div
+              className={`px-4 py-3 rounded-xl flex items-center ${
+                error.startsWith("⚠️")
+                  ? "bg-yellow-100 border border-yellow-400 text-yellow-700"
+                  : "bg-red-100 border border-red-400 text-red-700"
+              }`}
+            >
+              <AlertCircle className="w-5 h-5 mr-2" />
+              <span>{error}</span>
             </div>
           </div>
         )}
