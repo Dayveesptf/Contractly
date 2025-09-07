@@ -4,9 +4,8 @@ import multer from "multer";
 import mammoth from "mammoth";
 import dotenv from "dotenv";
 import fs from "fs";
-import path from "path";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import cors from "cors"; // Add this import
+import cors from "cors";
 
 dotenv.config();
 
@@ -14,41 +13,25 @@ const app = express();
 const upload = multer({ dest: "uploads/" });
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS - Add this middleware
+// Enable CORS
 app.use(cors({
-  origin: ["http://localhost:5173", "https://contractly-kappa.vercel.app"], // Your frontend URL
+  origin: ["http://localhost:5173", "https://contractly-kappa.vercel.app"],
   credentials: true
 }));
 
-
-// Fix for pdf-parse: Use dynamic import with error handling
+// Fix for pdf-parse
 let pdfParse;
-
-// Create an async function to handle the dynamic import
 async function initializePdfParse() {
   try {
-    // Use dynamic import to avoid the initialization error
-    const pdfModule = await import('pdf-parse');
+    const pdfModule = await import("pdf-parse");
     return pdfModule.default;
   } catch (error) {
-    console.warn('PDF parse module warning:', error.message);
-    // Fallback implementation
-    return async (buffer) => {
-      try {
-        // Try to use an alternative approach if the main import fails
-        const { default: fallbackPdfParse } = await import('pdf-parse/lib/pdf-parse.js');
-        return await fallbackPdfParse(buffer);
-      } catch (fallbackError) {
-        console.warn('Fallback PDF parse also failed:', fallbackError.message);
-        return { text: "PDF content extraction unavailable. Please try a DOCX file instead." };
-      }
-    };
+    console.warn("PDF parse module warning:", error.message);
+    return async () => ({ text: "" });
   }
 }
 
-// Initialize the server
 async function startServer() {
-  // Initialize pdfParse
   pdfParse = await initializePdfParse();
 
   // Gemini client
@@ -66,28 +49,13 @@ async function startServer() {
     try {
       let text = "";
 
-      // PDF extraction
+      // Extract text
       if (file.mimetype === "application/pdf") {
-        try {
-          const buffer = fs.readFileSync(file.path);
-          const data = await pdfParse(buffer);
-          text = data.text;
-          if (!text || text.includes("unavailable")) {
-            return res.status(400).json({ 
-              error: "PDF parsing is currently unavailable. Please upload a DOCX file instead." 
-            });
-          }
-        } catch (pdfError) {
-          console.error("PDF parsing error:", pdfError);
-          return res.status(400).json({ 
-            error: "Failed to parse PDF. Please try a DOCX file or ensure the PDF is not password protected." 
-          });
-        }
-      }
-      // DOCX/DOC extraction
-      else if (
-        file.mimetype ===
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        const buffer = fs.readFileSync(file.path);
+        const data = await pdfParse(buffer);
+        text = data.text;
+      } else if (
+        file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
         file.mimetype === "application/msword"
       ) {
         const result = await mammoth.extractRawText({ path: file.path });
@@ -96,14 +64,27 @@ async function startServer() {
         return res.status(400).json({ error: "Unsupported file type" });
       }
 
-      // Build prompt
+      // Quick keyword check (backend filter)
+      const contractKeywords = /(agreement|party|obligation|termination|confidentiality|liability|warranty|contract)/i;
+      if (!contractKeywords.test(text)) {
+        fs.unlink(file.path, () => {});
+        return res.json({
+          analysis: "⚠️ This doesn’t look like a contract. Please upload an actual contract document."
+        });
+      }
+
+      // Build refined prompt
       const prompt = `
-        You are a legal assistant AI. Analyze this contract and summarize clearly, tell the user to upload an actual contract, if something unrelated was uploaded:
-        - Key obligations
-        - Renewal dates and deadlines
-        - Risks and penalties
-        - Auto-renewal clauses
-        - Recommendations for SMEs
+        You are a legal assistant AI.
+        First, check if the document is truly a legal contract.
+        - If it is NOT a contract, respond exactly with:
+          "⚠️ This doesn’t look like a contract. Please upload an actual contract document."
+        - If it IS a contract, then analyze and summarize with these sections:
+          - Key obligations
+          - Renewal dates and deadlines
+          - Risks and penalties
+          - Auto-renewal clauses
+          - Recommendations for SMEs
 
         Contract (truncated if too long):
         ${text.slice(0, 4000)}
@@ -113,10 +94,7 @@ async function startServer() {
       const result = await model.generateContent(prompt);
       const analysis = result.response.text();
 
-      // Cleanup uploaded file
-      fs.unlink(file.path, (err) => {
-        if (err) console.error("❌ Error deleting file:", err);
-      });
+      fs.unlink(file.path, () => {}); // cleanup
 
       res.json({ analysis });
     } catch (error) {
@@ -131,7 +109,6 @@ async function startServer() {
   });
 }
 
-// Start the server
 startServer().catch(error => {
   console.error("Failed to start server:", error);
   process.exit(1);
