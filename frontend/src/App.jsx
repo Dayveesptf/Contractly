@@ -6,6 +6,8 @@ const API_BASE =
     ? "http://localhost:5000"
     : "https://contractly-nhu5.onrender.com";
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
 const Index = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -32,11 +34,9 @@ const Index = () => {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (isValidFileType(file)) {
+      if (isValidFile(file)) {
         setSelectedFile(file);
         setError(null);
-      } else {
-        setError('Please upload a PDF or DOCX file only.');
       }
     }
   };
@@ -45,22 +45,42 @@ const Index = () => {
     const files = e.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      if (isValidFileType(file)) {
+      if (isValidFile(file)) {
         setSelectedFile(file);
         setError(null);
-      } else {
-        setError('Please upload a PDF or DOCX file only.');
       }
     }
   };
 
-  const isValidFileType = (file) => {
+  const isValidFile = (file) => {
+    // Check file type
     const validTypes = [
       'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword'
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ];
-    return validTypes.includes(file.type) || file.name.toLowerCase().endsWith('.pdf') || file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc');
+    
+    const validExtensions = ['.pdf', '.docx'];
+    const extension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    
+    if (!validTypes.includes(file.type) && !validExtensions.includes(extension)) {
+      setError('Please upload only PDF or DOCX files.');
+      return false;
+    }
+    
+    // Check file size
+    if (file.size > MAX_FILE_SIZE) {
+      setError('File size must be less than 5MB.');
+      return false;
+    }
+    
+    // Check file name for potential malicious patterns
+    const invalidPatterns = [/\.\.\//, /\/etc\//, /\/passwd/, /\.exe$/, /\.js$/, /\.html$/];
+    if (invalidPatterns.some(pattern => pattern.test(file.name))) {
+      setError('Invalid file name.');
+      return false;
+    }
+    
+    return true;
   };
 
   const handleAnalyze = async () => {
@@ -238,7 +258,7 @@ const Index = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.docx,.doc"
+                accept=".pdf,.docx"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -287,7 +307,7 @@ const Index = () => {
                     </p>
                     <div className="inline-flex bg-[#cf8cff5e] items-center space-x-2 bg-secondary px-3 py-1 rounded-full text-sm">
                       <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                      <span className="">Supported: PDF, DOCX</span>
+                      <span className="">Supported: PDF, DOCX (Max 5MB)</span>
                     </div>
                   </div>
                 </div>

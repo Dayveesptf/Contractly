@@ -3,14 +3,52 @@ import multer from "multer";
 import mammoth from "mammoth";
 import dotenv from "dotenv";
 import fs from "fs";
+import path from "path";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import cors from "cors";
 
 dotenv.config();
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
 const PORT = process.env.PORT || 5000;
+
+// Configure multer with security settings
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Create a temporary directory if it doesn't exist
+    const uploadDir = 'uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate a safe filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const extension = path.extname(file.originalname);
+    cb(null, 'contract-' + uniqueSuffix + extension);
+  }
+});
+
+// File filter function
+const fileFilter = (req, file, cb) => {
+  // Allow only PDF and DOCX files
+  if (file.mimetype === 'application/pdf' || 
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only PDF and DOCX files are allowed.'), false);
+  }
+};
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+    files: 1 // Only one file per request
+  }
+});
 
 // Enable CORS
 app.use(cors({
@@ -32,6 +70,15 @@ async function initializePdfParse() {
   }
 }
 
+// Security middleware
+app.use((req, res, next) => {
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
 async function startServer() {
   pdfParse = await initializePdfParse();
 
@@ -41,13 +88,23 @@ async function startServer() {
 
   // Route: Analyze contract
   app.post("/analyze", upload.single("file"), async (req, res) => {
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({ error: "No file uploaded" });
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded or invalid file type." });
     }
 
+    const file = req.file;
+
     try {
+      // Additional security check on file extension
+      const allowedExtensions = ['.pdf', '.docx'];
+      const fileExtension = path.extname(file.originalname).toLowerCase();
+      
+      if (!allowedExtensions.includes(fileExtension)) {
+        // Remove the uploaded file
+        fs.unlink(file.path, () => {});
+        return res.status(400).json({ error: "Invalid file extension. Only PDF and DOCX files are allowed." });
+      }
+
       let text = "";
 
       // Extract text
@@ -55,13 +112,12 @@ async function startServer() {
         const buffer = fs.readFileSync(file.path);
         const data = await pdfParse(buffer);
         text = data.text;
-      } else if (
-        file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        file.mimetype === "application/msword"
-      ) {
+      } else if (file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
         const result = await mammoth.extractRawText({ path: file.path });
         text = result.value;
       } else {
+        // Remove the uploaded file
+        fs.unlink(file.path, () => {});
         return res.status(400).json({ error: "Unsupported file type" });
       }
 
@@ -176,16 +232,24 @@ async function startServer() {
         console.log("Cleaned response:", cleanResponse);
         
         const analysis = JSON.parse(cleanResponse);
-        fs.unlink(file.path, () => {}); // cleanup
+        
+        // Clean up uploaded file
+        fs.unlink(file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
         
         console.log("Successfully parsed analysis:", analysis);
         return res.json(analysis);
       } catch (parseError) {
         console.error("JSON parse error:", parseError);
         
+        // Clean up uploaded file
+        fs.unlink(file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
+        
         // Manual fallback analysis for employment contracts
         if (text.includes("employment") || text.includes("employee") || text.includes("employer")) {
-          fs.unlink(file.path, () => {});
           return res.json({
             isContract: true,
             "Key Obligations": [
@@ -222,7 +286,6 @@ async function startServer() {
         }
         
         // Fallback: if JSON parsing fails
-        fs.unlink(file.path, () => {});
         return res.json({
           isContract: false,
           analysis: "⚠️ Failed to analyze the document. Please try again with a different contract."
@@ -232,10 +295,22 @@ async function startServer() {
       console.error("❌ Analysis failed:", error);
       // Clean up uploaded file
       if (file && fs.existsSync(file.path)) {
-        fs.unlink(file.path, () => {});
+        fs.unlink(file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
       }
       res.status(500).json({ error: "Analysis failed. Please try again with a different contract." });
     }
+  });
+
+  // Error handling middleware
+  app.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
+      }
+    }
+    res.status(400).json({ error: error.message });
   });
 
   // Health check endpoint
