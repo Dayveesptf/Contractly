@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, CheckCircle, AlertCircle, XIcon } from 'lucide-react';
 
-
 const API_BASE =
   window.location.hostname === "localhost"
     ? "http://localhost:5000"
@@ -68,29 +67,35 @@ const Index = () => {
     if (selectedFile) {
       setIsAnalyzing(true);
       setError(null);
+      setAnalysisResults(null);
+      setShowResults(false);
       
       try {
         const formData = new FormData();
         formData.append('file', selectedFile);
 
+        console.log("Sending request to server...");
+        
         const response = await fetch(`${API_BASE}/analyze`, {
           method: 'POST',
           body: formData,
         });
 
+        const data = await response.json();
+        console.log("Server response:", data);
+        
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Analysis failed');
+          throw new Error(data.error || 'Analysis failed');
         }
 
-        const data = await response.json();
-        // 🟡 If backend says it's not a contract, show warning only
-        if (data.analysis && data.analysis.startsWith("⚠️")) {
-          setError(data.analysis); // yellow warning
+        // Handle non-contract documents
+        if (data.isContract === false) {
+          setError(data.analysis);
           setAnalysisResults(null);
           setShowResults(false);
         } else {
-          setAnalysisResults(data.analysis);
+          // Use the entire data object, not data.analysis
+          setAnalysisResults(data);
           setShowResults(true);
         }
       } catch (error) {
@@ -111,80 +116,76 @@ const Index = () => {
   const removeFile = () => {
     setSelectedFile(null);
     setError(null);
+    setAnalysisResults(null);
+    setShowResults(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const formatAnalysisText = (text) => {
-    // Remove markdown hashtags and normalize spacing
-    let cleaned = text.replace(/^#+\s*/gm, "").replace(/\*/g, "");
-
-    // Map headings to normalized names
+  const formatAnalysisText = (analysis) => {
+    // Define all possible sections with default values
     const sections = {
-      "Key Obligations": "",
-      "Renewal Dates and Deadlines": "",
-      "Risks and Penalties": "",
-      "Auto-Renewal Clauses": "",
-      "Recommendations for SMEs": "",
+      "Key Obligations": analysis["Key Obligations"] || ["No key obligations identified in this contract."],
+      "Renewal Dates and Deadlines": analysis["Renewal Dates and Deadlines"] || [],
+      "Risks and Penalties": analysis["Risks and Penalties"] || [],
+      "Auto-Renewal Clauses": analysis["Auto-Renewal Clauses"] || [],
+      "Recommendations for SMEs": analysis["Recommendations for SMEs"] || ["No specific recommendations available."]
     };
 
-    // Match any of the 5 headings in any format (with optional : or .)
-    const regex =
-      /(Key Obligations|Renewal Dates\/Deadlines|Renewal Dates and Deadlines|Risks\/Penalties|Risks and Penalties|Auto-Renewal Clauses|Recommendations for SMEs)\s*[:.]?\s*/gi;
-
-    let currentHeading = null;
-
-    cleaned.split("\n").forEach((line) => {
-      const match = line.match(regex);
-      if (match) {
-        // Normalize heading to our fixed names
-        const raw = match[0]
-          .replace(/[:.]/g, "")
-          .trim()
-          .toLowerCase();
-
-        if (raw.includes("key obligations")) currentHeading = "Key Obligations";
-        else if (raw.includes("renewal dates")) currentHeading = "Renewal Dates and Deadlines";
-        else if (raw.includes("risks")) currentHeading = "Risks and Penalties";
-        else if (raw.includes("auto-renewal")) currentHeading = "Auto-Renewal Clauses";
-        else if (raw.includes("recommendations")) currentHeading = "Recommendations for SMEs";
-
-        return;
-      }
-
-      if (currentHeading) {
-        sections[currentHeading] += line.trim() + " ";
-      }
-    });
-
-    // Render all 5, even if empty
+    // Render all sections
     return Object.entries(sections).map(([heading, content], index) => (
       <div key={index} className="mb-6">
         <h3 className="text-lg font-bold text-purple-900 mb-3">
           {heading}
         </h3>
-        {content.trim() ? (
-          <div className="ml-4">
-            {content
-              .split(/(?<=\.)\s+/) // split into sentences
-              .map(
-                (paragraph, pIndex) =>
-                  paragraph.trim() && (
-                    <p key={pIndex} className="mb-2 text-sm md:text-base text-gray-700">
-                      {paragraph.trim()}
-                    </p>
-                  )
-              )}
+        
+        {Array.isArray(content) && content.length > 0 ? (
+          <div className="">
+            {content.map((item, itemIndex) => {
+              // Check if item is an object (for sections with risk ratings)
+              if (typeof item === 'object' && item !== null) {
+                return (
+                  <div key={itemIndex} className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                    <p className="text-sm md:text-base text-gray-700 mb-2">{item.point}</p>
+                    {item.riskRating && (
+                      <div className="flex items-center text-xs mb-2">
+                        <span className="font-medium mr-2">Risk Rating:</span>
+                        <span className={`px-2 py-1 rounded ${
+                          item.riskRating.toLowerCase().includes('high') 
+                            ? 'bg-red-100 text-red-800 border border-red-200' 
+                            : item.riskRating.toLowerCase().includes('medium')
+                              ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                              : 'bg-green-100 text-green-800 border border-green-200'
+                        }`}>
+                          {item.riskRating}
+                        </span>
+                      </div>
+                    )}
+                    {item.reason && (
+                      <div className="text-xs text-gray-500 italic">
+                        <span className="font-medium">Reason: </span>
+                        {item.reason}
+                      </div>
+                    )}
+                  </div>
+                );
+              } else {
+                // For simple string items (like in Key Obligations and Recommendations)
+                return (
+                  <div key={itemIndex} className="mb-2">
+                    <p className="text-sm md:text-base text-gray-700">• {item}</p>
+                  </div>
+                );
+              }
+            })}
           </div>
         ) : (
-          <p className="ml-4 text-gray-500 italic">No details found.</p>
+          <p className="ml-4 text-gray-500 italic">No details found for this section.</p>
         )}
       </div>
     ));
   };
-
-
 
   return (
     <div className="min-h-screen bg-gradient-hero">
@@ -204,7 +205,7 @@ const Index = () => {
           <div className="w-11/12 md:w-3/6 mx-auto mb-6">
             <div
               className={`px-4 py-3 rounded-xl flex items-center ${
-                error.startsWith("⚠️")
+                error.startsWith("⚠️") || error.startsWith("This doesn't look like a contract")
                   ? "bg-yellow-100 border border-yellow-400 text-yellow-700"
                   : "bg-red-100 border border-red-400 text-red-700"
               }`}

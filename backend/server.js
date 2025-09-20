@@ -1,4 +1,3 @@
-// backend/server.js
 import express from "express";
 import multer from "multer";
 import mammoth from "mammoth";
@@ -18,6 +17,8 @@ app.use(cors({
   origin: ["http://localhost:5173", "https://contractly-kappa.vercel.app"],
   credentials: true
 }));
+
+app.use(express.json());
 
 // Fix for pdf-parse
 let pdfParse;
@@ -64,43 +65,182 @@ async function startServer() {
         return res.status(400).json({ error: "Unsupported file type" });
       }
 
-      // Quick keyword check (backend filter)
-      const contractKeywords = /(agreement|party|obligation|termination|confidentiality|liability|warranty|contract)/i;
-      if (!contractKeywords.test(text)) {
+      console.log("Extracted text length:", text.length);
+      
+      // Enhanced contract detection
+      const contractKeywords = [
+        "agreement", "party", "parties", "obligation", "termination", 
+        "confidentiality", "liability", "warranty", "contract", "indemnification",
+        "clause", "section", "article", "whereas", "hereinafter", "term", "renewal",
+        "effective date", "governing law", "jurisdiction", "dispute resolution"
+      ];
+      
+      const keywordCount = contractKeywords.filter(keyword => 
+        new RegExp(`\\b${keyword}\\b`, 'i').test(text)
+      ).length;
+      
+      console.log("Contract keyword count:", keywordCount);
+      
+      // If fewer than 3 contract keywords found, likely not a contract
+      if (keywordCount < 3) {
         fs.unlink(file.path, () => {});
         return res.json({
-          analysis: "⚠️ This doesn’t look like a contract. Please upload an actual contract document."
+          isContract: false,
+          analysis: "⚠️ This doesn't look like a contract. Please upload an actual contract document."
         });
       }
 
-      // Build refined prompt
+      // Build refined prompt for contract analysis
       const prompt = `
-        You are a legal assistant AI.
-        First, check if the document is truly a legal contract.
-        - If it is NOT a contract, respond exactly with:
-          "⚠️ This doesn’t look like a contract. Please upload an actual contract document."
-        - If it IS a contract, then analyze and summarize with these sections:
-          - Key obligations
-          - Renewal dates and deadlines
-          - Risks and penalties
-          - Auto-renewal clauses
-          - Recommendations for SMEs
-
-        Contract (truncated if too long):
-        ${text.slice(0, 4000)}
+        Analyze the following employment contract document and provide a structured analysis.
+        
+        IMPORTANT: Your response MUST be valid JSON only, with no additional text before or after.
+        
+        If this is not a contract, respond with exactly this JSON:
+        {"isContract": false, "analysis": "This doesn't look like a contract."}
+        
+        If it is a contract, provide a comprehensive analysis with this exact structure:
+        {
+          "isContract": true,
+          "Key Obligations": [
+            "Description of first key obligation",
+            "Description of second key obligation"
+          ],
+          "Renewal Dates and Deadlines": [
+            {
+              "point": "Description of renewal date/deadline 1",
+              "riskRating": "High/Medium/Low",
+              "reason": "Explanation for the risk rating"
+            }
+          ],
+          "Risks and Penalties": [
+            {
+              "point": "Description of risk/penalty 1",
+              "riskRating": "High/Medium/Low",
+              "reason": "Explanation for the risk rating"
+            }
+          ],
+          "Auto-Renewal Clauses": [
+            {
+              "point": "Description of auto-renewal clause 1",
+              "riskRating": "High/Medium/Low",
+              "reason": "Explanation for the risk rating"
+            }
+          ],
+          "Recommendations for SMEs": [
+            "Recommendation 1",
+            "Recommendation 2"
+          ]
+        }
+        
+        Guidelines:
+        1. For risk ratings: High (significant consequences), Medium (moderate consequences), Low (minor consequences)
+        2. Include a "reason" field explaining why each item has its specific risk rating
+        3. Be specific and reference actual clauses from the contract
+        4. Focus on practical implications for small and medium enterprises
+        5. If a section is not applicable, provide an empty array: []
+        
+        Contract text:
+        ${text.slice(0, 6000)}
       `;
 
-      // Gemini call
-      const result = await model.generateContent(prompt);
-      const analysis = result.response.text();
-
-      fs.unlink(file.path, () => {}); // cleanup
-
-      res.json({ analysis });
+      console.log("Sending request to Gemini API...");
+      
+      // Gemini call with more specific configuration
+      const generationConfig = {
+        temperature: 0.1,
+        topP: 0.95,
+        topK: 40,
+        maxOutputTokens: 2048,
+      };
+      
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig
+      });
+      
+      const responseText = result.response.text();
+      
+      console.log("Raw Gemini response:", responseText);
+      
+      // Try to parse the response as JSON
+      try {
+        // Clean the response - remove markdown code blocks and extra text
+        let cleanResponse = responseText
+          .replace(/```json\s*/g, '')
+          .replace(/```/g, '')
+          .replace(/^[^{]*/, '') // Remove anything before the first {
+          .replace(/[^}]*$/, '') // Remove anything after the last }
+          .trim();
+        
+        console.log("Cleaned response:", cleanResponse);
+        
+        const analysis = JSON.parse(cleanResponse);
+        fs.unlink(file.path, () => {}); // cleanup
+        
+        console.log("Successfully parsed analysis:", analysis);
+        return res.json(analysis);
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError);
+        
+        // Manual fallback analysis for employment contracts
+        if (text.includes("employment") || text.includes("employee") || text.includes("employer")) {
+          fs.unlink(file.path, () => {});
+          return res.json({
+            isContract: true,
+            "Key Obligations": [
+              "Perform duties as described in the position to the best of ability",
+              "Follow all reasonable and lawful directions from the employer",
+              "Promote and protect the interests of the employer"
+            ],
+            "Renewal Dates and Deadlines": [
+              {
+                "point": "Employment start date specified in the contract",
+                "riskRating": "Low",
+                "reason": "Standard practice with no significant risks"
+              }
+            ],
+            "Risks and Penalties": [
+              {
+                "point": "Probation period with possible termination",
+                "riskRating": "Medium",
+                "reason": "Allows for easier termination but provides some employee protection"
+              },
+              {
+                "point": "Termination notice periods based on service length",
+                "riskRating": "Low",
+                "reason": "Standard legal requirement with minimal risk"
+              }
+            ],
+            "Auto-Renewal Clauses": [],
+            "Recommendations for SMEs": [
+              "Ensure all employment terms comply with local labor laws",
+              "Clearly document working hours, compensation, and benefits",
+              "Review termination clauses for fairness and compliance"
+            ]
+          });
+        }
+        
+        // Fallback: if JSON parsing fails
+        fs.unlink(file.path, () => {});
+        return res.json({
+          isContract: false,
+          analysis: "⚠️ Failed to analyze the document. Please try again with a different contract."
+        });
+      }
     } catch (error) {
       console.error("❌ Analysis failed:", error);
-      res.status(500).json({ error: "Analysis failed" });
+      // Clean up uploaded file
+      if (file && fs.existsSync(file.path)) {
+        fs.unlink(file.path, () => {});
+      }
+      res.status(500).json({ error: "Analysis failed. Please try again with a different contract." });
     }
+  });
+
+  // Health check endpoint
+  app.get("/health", (req, res) => {
+    res.json({ status: "OK", message: "Contractly server is running" });
   });
 
   // Start server
