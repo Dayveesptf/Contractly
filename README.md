@@ -1,18 +1,17 @@
 # Contractly 📋  
 **AI-Powered Contract Analysis Tool**
 
-Contractly is an intelligent web application that leverages AI to analyze legal contracts and provide instant insights about key terms, risks, and obligations.  
-It’s designed to help small and medium businesses understand complex legal documents without requiring legal expertise.  
+Contractly is an intelligent web application that uses AI to **analyze contract documents** and provide instant **insights about key terms, potential risks, and important obligations**. It's designed to help businesses **understand agreement documents** without requiring legal expertise.  
 
 ---
 
 ## ✨ What It Does
--  Upload contract documents (PDF or DOCX format)  
--  Get **AI-powered analysis** of key contract elements  
--  Identify potential risks with detailed **risk ratings** and explanations  
--  Understand renewal dates and deadlines  
--  Receive **tailored recommendations** for SMEs  
--  Review auto-renewal clauses and their implications  
+Contractly allows users to:
+- Upload agreement documents (PDF or DOCX format)
+- Get **AI-powered insights** about key document elements
+- Identify **potential considerations** with risk ratings
+- Understand important dates and deadlines
+- Receive **general recommendations** for business considerations 
 
 ---
 
