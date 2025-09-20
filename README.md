@@ -46,4 +46,4 @@ It’s designed to help small and medium businesses understand complex legal doc
 - **Render** – Backend hosting  
 
 ## 🔗 Live Demo
-[Try Contractly Here](https://contractly-nhu5.onrender.com)  
+[Try Contractly Here](https://contractly-kappa.vercel.app/)  
