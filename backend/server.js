@@ -84,7 +84,7 @@ async function startServer() {
 
   // Gemini client
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite-preview" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   // Route: Analyze contract
   app.post("/analyze", upload.single("file"), async (req, res) => {
